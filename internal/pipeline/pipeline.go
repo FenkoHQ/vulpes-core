@@ -149,6 +149,7 @@ func (p *Pipeline) ExecuteChat(ctx context.Context, req capabilities.ChatComplet
 	started := time.Now()
 	callCtx := capabilities.CallContext{RequestID: requestID, GatewayVersion: "dev", TraceContext: map[string]string{}}
 	props := extractProperties(headers)
+	props["requested_model"] = req.Model
 	summary := capabilities.RequestSummary{Operation: "chat.completions", RequestedModel: req.Model, EstimatedInputTokens: estimateTokens(req), Properties: props}
 	identity := capabilities.Identity{Subject: "anonymous", TenantID: "anonymous", AuthMethod: "anonymous"}
 	if !p.cfg.Auth.Anonymous {
