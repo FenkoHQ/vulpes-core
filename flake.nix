@@ -26,10 +26,14 @@
         };
         plugins = rec {
           authn-static-api-key = buildPlugin "authn-static-api-key" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+          authn-postgres-api-key = buildPlugin "authn-postgres-api-key" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+          cache-memory = buildPlugin "cache-memory" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+          ratelimit-memory = buildPlugin "ratelimit-memory" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
           router-weighted = buildPlugin "router-weighted" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
           router-litellm = buildPlugin "router-litellm" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
           router-consul = buildPlugin "router-consul" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
           prompt-context-injector = buildPlugin "prompt-context-injector" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+          prompt-template-registry = buildPlugin "prompt-template-registry" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
           upstream-openai = buildPlugin "upstream-openai" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
           observer-stdout = buildPlugin "observer-stdout" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
           observer-prometheus = buildPlugin "observer-prometheus" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
