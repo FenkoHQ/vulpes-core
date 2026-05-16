@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package gateway.v1;
+
+option go_package = "github.com/FenkoHQ/vulpes-core/gen/go/gateway/v1;gatewayv1";
+
+message CallContext {
+  string request_id = 1;
+  string tenant_id = 2;
+  int64 deadline_unix_nano = 3;
+  map<string, string> trace_context = 4;
+  string gateway_version = 5;
+  string plugin_instance = 6;
+}
+
+message Diagnostic {
+  string severity = 1;
+  string code = 2;
+  string message = 3;
+  map<string, string> details = 4;
+}
+
+message JSONSchema { string schema_json = 1; }
+
+enum CapabilityType {
+  CAPABILITY_TYPE_UNSPECIFIED = 0;
+  CAPABILITY_TYPE_AUTHENTICATOR = 1;
+  CAPABILITY_TYPE_AUTHORIZER = 2;
+  CAPABILITY_TYPE_RATE_LIMITER = 3;
+  CAPABILITY_TYPE_ROUTER = 4;
+  CAPABILITY_TYPE_UPSTREAM_PROVIDER = 5;
+  CAPABILITY_TYPE_CACHE_PROVIDER = 6;
+  CAPABILITY_TYPE_OBSERVER = 7;
+  CAPABILITY_TYPE_PROMPT_PROVIDER = 8;
+  CAPABILITY_TYPE_COST_PROVIDER = 9;
+  CAPABILITY_TYPE_MODEL_REGISTRY_PROVIDER = 10;
+}
+
+message CapabilityDescriptor { CapabilityType type = 1; string name = 2; string version = 3; }
+message DataPermissions { bool read_prompt = 1; bool read_response = 2; bool modify_request = 3; bool modify_response = 4; bool read_headers = 5; }
+message PluginPermissions { repeated string outbound_hosts = 1; repeated string secret_names = 2; DataPermissions data = 3; }
+
+message HandshakeRequest { string gateway_version = 1; repeated int32 supported_protocol_versions = 2; }
+message HandshakeResponse { int32 selected_protocol_version = 1; string plugin_name = 2; string plugin_version = 3; repeated Diagnostic diagnostics = 4; }
+message GetMetadataRequest {}
+message GetMetadataResponse { string name = 1; string version = 2; string homepage = 3; repeated CapabilityDescriptor capabilities = 4; PluginPermissions permissions = 5; }
+message GetConfigSchemaRequest {}
+message GetConfigSchemaResponse { string schema_json = 1; }
+message ConfigureRequest { CallContext context = 1; string config_json = 2; map<string, string> resolved_secrets = 3; }
+message ConfigureResponse { repeated Diagnostic diagnostics = 1; }
+message HealthRequest {}
+message HealthResponse { string state = 1; repeated Diagnostic diagnostics = 2; }
+message ShutdownRequest {}
+message ShutdownResponse {}
+
+service PluginService {
+  rpc Handshake(HandshakeRequest) returns (HandshakeResponse);
+  rpc GetMetadata(GetMetadataRequest) returns (GetMetadataResponse);
+  rpc GetConfigSchema(GetConfigSchemaRequest) returns (GetConfigSchemaResponse);
+  rpc Configure(ConfigureRequest) returns (ConfigureResponse);
+  rpc Health(HealthRequest) returns (HealthResponse);
+  rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
+}

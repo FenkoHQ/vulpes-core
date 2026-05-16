@@ -1,0 +1,20 @@
+server:
+  listen: 127.0.0.1:8080
+
+secrets:
+  env:
+    enabled: true
+
+plugins:
+  - name: openai
+    source:
+      type: filesystem
+      path: ./bin/upstream-openai
+    capabilities: [upstream_provider]
+    config:
+      base_url: https://api.openai.com/v1
+      api_key: ${secret:OPENAI_API_KEY}
+
+pipeline:
+  router: weighted-router
+  upstream_providers: [openai]

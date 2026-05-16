@@ -1,0 +1,16 @@
+server:
+  listen: 127.0.0.1:8080
+
+plugins:
+  - name: openai
+    source:
+      type: github
+      repository: fenko/llm-gateway-plugins
+      release: v0.1.0
+      asset: upstream-openai_linux_amd64.tar.gz
+      binary: upstream-openai
+      checksum: sha256:replace-me
+    capabilities: [upstream_provider]
+
+pipeline:
+  upstream_providers: [openai]

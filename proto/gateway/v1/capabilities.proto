@@ -1,0 +1,65 @@
+syntax = "proto3";
+package gateway.v1;
+option go_package = "github.com/FenkoHQ/vulpes-core/gen/go/gateway/v1;gatewayv1";
+
+import "gateway/v1/plugin.proto";
+
+message Identity { string subject = 1; string tenant_id = 2; repeated string groups = 3; map<string,string> claims = 4; string auth_method = 5; }
+message RequestSummary { string operation = 1; string requested_model = 2; int64 estimated_input_tokens = 3; map<string,string> properties = 4; }
+message RequestConstraints { repeated string allowed_models = 1; int64 max_output_tokens = 2; double max_estimated_cost_usd = 3; repeated string allowed_regions = 4; }
+message ChatMessage { string role = 1; string content_json = 2; string name = 3; string tool_call_id = 4; }
+message ChatCompletionRequest { string model = 1; repeated ChatMessage messages = 2; bool stream = 3; string provider_params_json = 4; }
+message ChatChoice { int32 index = 1; ChatMessage message = 2; ChatMessage delta = 3; string finish_reason = 4; }
+message ChatCompletionChunk { string id = 1; string object = 2; int64 created = 3; string model = 4; repeated ChatChoice choices = 5; }
+message Usage { string provider_instance = 1; string provider_model = 2; int64 input_tokens = 3; int64 output_tokens = 4; int64 total_tokens = 5; double cost_usd = 6; }
+message UpstreamError { string code = 1; string message = 2; int32 http_status = 3; bool retryable = 4; bool rate_limited = 5; }
+message ResponseChunk { oneof payload { ChatCompletionChunk chunk = 1; Usage usage = 2; UpstreamError error = 3; } }
+
+message AuthenticateRequest { CallContext context = 1; map<string,string> headers = 2; string source_ip = 3; string method = 4; string path = 5; }
+message AuthenticateResponse { bool allow = 1; Identity identity = 2; string deny_reason = 3; repeated Diagnostic diagnostics = 4; }
+service AuthenticatorService { rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse); }
+
+message AuthorizeRequest { CallContext context = 1; Identity identity = 2; RequestSummary request = 3; }
+message AuthorizeResponse { bool allow = 1; string deny_reason = 2; RequestConstraints constraints = 3; repeated Diagnostic diagnostics = 4; }
+service AuthorizerService { rpc Authorize(AuthorizeRequest) returns (AuthorizeResponse); }
+
+message CheckRateLimitRequest { CallContext context = 1; Identity identity = 2; string model = 3; int64 estimated_input_tokens = 4; int64 requested_output_tokens = 5; map<string,string> properties = 6; }
+message RateLimitState { int64 request_limit = 1; int64 request_remaining = 2; int64 token_limit = 3; int64 token_remaining = 4; double budget_limit_usd = 5; double budget_remaining_usd = 6; int64 reset_unix_nano = 7; }
+message CheckRateLimitResponse { string decision = 1; string deny_reason = 2; int64 retry_after_ms = 3; RateLimitState state = 4; }
+message CommitUsageRequest { CallContext context = 1; Identity identity = 2; Usage usage = 3; }
+message CommitUsageResponse { repeated Diagnostic diagnostics = 1; }
+service RateLimiterService { rpc Check(CheckRateLimitRequest) returns (CheckRateLimitResponse); rpc Commit(CommitUsageRequest) returns (CommitUsageResponse); }
+
+message RouteCandidate { string provider_instance = 1; string provider_model = 2; string logical_model = 3; int32 weight = 4; string region = 5; bool healthy = 6; double estimated_cost_per_1k_input = 7; double estimated_cost_per_1k_output = 8; map<string,string> properties = 9; }
+message RouteRequest { CallContext context = 1; Identity identity = 2; string requested_model = 3; RequestSummary request = 4; repeated RouteCandidate candidates = 5; RequestConstraints constraints = 6; }
+message SelectedRoute { string provider_instance = 1; string provider_model = 2; int32 priority = 3; map<string,string> properties = 4; }
+message RouteResponse { repeated SelectedRoute routes = 1; string reason = 2; repeated Diagnostic diagnostics = 3; }
+service RouterService { rpc Route(RouteRequest) returns (RouteResponse); }
+
+message InvokeRequest { CallContext context = 1; Identity identity = 2; string provider_model = 3; ChatCompletionRequest request = 4; map<string,string> properties = 5; }
+message ListModelsRequest {}
+message ModelInfo { string id = 1; string provider_instance = 2; string provider_model = 3; int64 context_window = 4; bool supports_streaming = 5; bool supports_tools = 6; bool healthy = 7; }
+message ListModelsResponse { repeated ModelInfo models = 1; }
+service UpstreamProviderService { rpc Invoke(InvokeRequest) returns (stream ResponseChunk); rpc ListModels(ListModelsRequest) returns (ListModelsResponse); }
+
+message CachePolicy { int64 ttl_ms = 1; bool semantic = 2; map<string,string> vary = 3; }
+message CachedResponse { string response_json = 1; Usage usage = 2; }
+message CacheLookupRequest { CallContext context = 1; Identity identity = 2; string cache_key = 3; CachePolicy policy = 4; }
+message CacheLookupResponse { bool hit = 1; CachedResponse response = 2; string cache_id = 3; }
+message CacheStoreRequest { CallContext context = 1; Identity identity = 2; string cache_key = 3; CachedResponse response = 4; CachePolicy policy = 5; }
+message CacheStoreResponse { repeated Diagnostic diagnostics = 1; }
+service CacheProviderService { rpc Lookup(CacheLookupRequest) returns (CacheLookupResponse); rpc Store(CacheStoreRequest) returns (CacheStoreResponse); }
+
+message GatewayEvent { string event_id = 1; string request_id = 2; string tenant_id = 3; string event_type = 4; int64 timestamp_unix_nano = 5; map<string,string> properties = 6; Usage usage = 7; string error_json = 8; }
+message EventBatch { repeated GatewayEvent events = 1; }
+message EmitResponse { repeated Diagnostic diagnostics = 1; }
+service ObserverService { rpc Emit(EventBatch) returns (EmitResponse); }
+
+message ResolvePromptRequest { CallContext context = 1; Identity identity = 2; string prompt_ref = 3; string version = 4; map<string,string> variables = 5; }
+message ResolvePromptResponse { repeated ChatMessage messages = 1; string resolved_version = 2; map<string,string> properties = 3; }
+service PromptProviderService { rpc ResolvePrompt(ResolvePromptRequest) returns (ResolvePromptResponse); }
+
+message EstimateCostRequest { CallContext context = 1; string provider = 2; string model = 3; int64 input_tokens = 4; int64 output_tokens = 5; }
+message EstimateCostResponse { double estimated_cost_usd = 1; }
+service CostProviderService { rpc Estimate(EstimateCostRequest) returns (EstimateCostResponse); }
+service ModelRegistryProviderService { rpc ListModels(ListModelsRequest) returns (ListModelsResponse); }
