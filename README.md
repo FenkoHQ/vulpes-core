@@ -39,3 +39,7 @@ make proto
 - Linux sandbox enforcement is represented by policy/config boundaries; strict seccomp/cgroup enforcement is not yet wired.
 - Public community plugins are not included in this core repo.
 - Generated protobuf files are intentionally not checked in; run `make proto` when Buf is available.
+
+## License
+
+AGPL-3.0-only. See [LICENSE](LICENSE).
