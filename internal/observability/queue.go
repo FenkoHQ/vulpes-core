@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 
@@ -84,8 +85,10 @@ func (q *Queue) flush(ctx context.Context) {
 			return
 		}
 		for _, obs := range q.observers {
-			obsCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			_ = obs.Emit(obsCtx, batch)
+			obsCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			if err := obs.Emit(obsCtx, batch); err != nil {
+				log.Printf("observer emit failed: %v", err)
+			}
 			cancel()
 		}
 	}
