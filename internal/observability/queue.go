@@ -84,7 +84,7 @@ func (q *Queue) flush(ctx context.Context) {
 			return
 		}
 		for _, obs := range q.observers {
-			ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			_ = obs.Emit(ctx, batch)
 			cancel()
 		}
