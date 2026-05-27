@@ -58,6 +58,28 @@ type GetMetadataRequest struct{}
 type ShutdownRequest struct{}
 type ShutdownResponse struct{}
 
+// Streaming RPC wire types. The plugin SDK has structurally identical types
+// under its own package; gob encodes by field name + type so the two are
+// wire-compatible without sharing a Go package.
+type InvokeStartResponse struct {
+	StreamID uint64
+}
+
+type InvokeNextRequest struct {
+	StreamID uint64
+}
+
+type InvokeNextResponse struct {
+	Chunk capabilities.ResponseChunk
+	EOF   bool
+}
+
+type InvokeCancelRequest struct {
+	StreamID uint64
+}
+
+type InvokeCancelResponse struct{}
+
 type RPCPluginClient struct {
 	instance string
 	network  string
@@ -206,20 +228,48 @@ func (c *RPCPluginClient) Route(ctx context.Context, req capabilities.RouteReque
 	err := c.call(ctx, "Plugin.Route", req, &resp)
 	return resp, err
 }
+// Invoke opens a streaming upstream call. The plugin's InvokeStart kicks off
+// the producer and returns a stream ID; this goroutine loops InvokeNext,
+// forwarding each chunk as it arrives, until the plugin signals EOF. This
+// preserves real time-to-first-token and upstream backpressure — the prior
+// implementation pulled the whole response into []ResponseChunk before any
+// chunk reached the HTTP client, then faked streaming with a 1ms sleep.
 func (c *RPCPluginClient) Invoke(ctx context.Context, req capabilities.InvokeRequest) (<-chan capabilities.ResponseChunk, error) {
-	var resp []capabilities.ResponseChunk
-	if err := c.call(ctx, "Plugin.Invoke", req, &resp); err != nil {
+	var start InvokeStartResponse
+	if err := c.call(ctx, "Plugin.InvokeStart", req, &start); err != nil {
 		return nil, err
 	}
 	ch := make(chan capabilities.ResponseChunk)
 	go func() {
 		defer close(ch)
-		for _, chunk := range resp {
+		// If the caller's ctx is cancelled mid-stream, tell the plugin to
+		// abort its upstream HTTP request rather than letting it run to
+		// completion with nobody listening.
+		streamDone := make(chan struct{})
+		defer close(streamDone)
+		go func() {
 			select {
-			case ch <- chunk:
-				if chunk.Chunk != nil {
-					time.Sleep(1 * time.Millisecond)
+			case <-ctx.Done():
+				cancelCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				_ = c.call(cancelCtx, "Plugin.InvokeCancel", InvokeCancelRequest{StreamID: start.StreamID}, &InvokeCancelResponse{})
+			case <-streamDone:
+			}
+		}()
+		for {
+			var next InvokeNextResponse
+			if err := c.call(ctx, "Plugin.InvokeNext", InvokeNextRequest{StreamID: start.StreamID}, &next); err != nil {
+				select {
+				case ch <- capabilities.ResponseChunk{Error: &capabilities.UpstreamError{Code: "plugin_stream_failed", Message: err.Error(), HTTPStatus: 502, Retryable: true}}:
+				case <-ctx.Done():
 				}
+				return
+			}
+			if next.EOF {
+				return
+			}
+			select {
+			case ch <- next.Chunk:
 			case <-ctx.Done():
 				return
 			}
