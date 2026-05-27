@@ -2,14 +2,34 @@ package plugins
 
 import (
 	"context"
+	"encoding/gob"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/rpc"
+	"sync"
 	"time"
 
 	"github.com/FenkoHQ/vulpes-core/internal/capabilities"
 )
+
+// net/rpc uses gob, which requires the concrete type of every value held in an
+// interface field to be registered. ChatMessage.Content and ChatCompletionRequest's
+// Tools/ToolChoice/Metadata are typed as `any` and frequently hold values
+// decoded from JSON (map[string]any, []any, etc.). Without these registrations
+// gob.Encode panics, which shuts down the rpc.Client and surfaces as
+// "connection is shut down" on every subsequent call against that plugin.
+// The plugin SDK already registers these on the server side; this is the
+// gateway-side counterpart.
+func init() {
+	gob.Register(map[string]any{})
+	gob.Register([]any{})
+	gob.Register("")
+	gob.Register(float64(0))
+	gob.Register(int64(0))
+	gob.Register(bool(false))
+}
 
 type HandshakeRequest struct {
 	GatewayVersion            string
@@ -40,7 +60,12 @@ type ShutdownResponse struct{}
 
 type RPCPluginClient struct {
 	instance string
-	client   *rpc.Client
+	network  string
+	address  string
+
+	mu     sync.Mutex
+	client *rpc.Client
+
 	metadata Metadata
 }
 
@@ -50,13 +75,74 @@ func DialRPCPlugin(ctx context.Context, network, address, instance string) (*RPC
 	if err != nil {
 		return nil, err
 	}
-	return &RPCPluginClient{instance: instance, client: rpc.NewClient(conn)}, nil
+	return &RPCPluginClient{instance: instance, network: network, address: address, client: rpc.NewClient(conn)}, nil
 }
 
-func (c *RPCPluginClient) Close() error { return c.client.Close() }
+func (c *RPCPluginClient) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.client == nil {
+		return nil
+	}
+	return c.client.Close()
+}
+
+func (c *RPCPluginClient) getClient() *rpc.Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.client
+}
+
+// reconnect redials the plugin socket and atomically swaps in the new client
+// if the current one matches `stale`. This prevents a thundering herd of
+// reconnects when many concurrent callers all see ErrShutdown at once: only
+// the first reconnect wins; the rest pick up the replacement client.
+func (c *RPCPluginClient) reconnect(ctx context.Context, stale *rpc.Client) (*rpc.Client, error) {
+	c.mu.Lock()
+	if c.client != stale {
+		client := c.client
+		c.mu.Unlock()
+		return client, nil
+	}
+	c.mu.Unlock()
+	var d net.Dialer
+	conn, err := d.DialContext(ctx, c.network, c.address)
+	if err != nil {
+		return nil, err
+	}
+	fresh := rpc.NewClient(conn)
+	c.mu.Lock()
+	if c.client == stale {
+		_ = stale.Close()
+		c.client = fresh
+		c.mu.Unlock()
+		return fresh, nil
+	}
+	current := c.client
+	c.mu.Unlock()
+	_ = fresh.Close()
+	return current, nil
+}
+
 func (c *RPCPluginClient) call(ctx context.Context, method string, req, resp any) error {
+	client := c.getClient()
+	err := callOn(ctx, client, method, req, resp)
+	if !errors.Is(err, rpc.ErrShutdown) {
+		return err
+	}
+	// Connection died (e.g. a previous call's encode panicked, or the plugin
+	// closed its side). Plugin processes keep listening across connections,
+	// so a fresh dial recovers without a process restart.
+	fresh, dialErr := c.reconnect(ctx, client)
+	if dialErr != nil {
+		return fmt.Errorf("%w (reconnect failed: %v)", err, dialErr)
+	}
+	return callOn(ctx, fresh, method, req, resp)
+}
+
+func callOn(ctx context.Context, client *rpc.Client, method string, req, resp any) error {
 	done := make(chan error, 1)
-	go func() { done <- c.client.Call(method, req, resp) }()
+	go func() { done <- client.Call(method, req, resp) }()
 	select {
 	case err := <-done:
 		return err
