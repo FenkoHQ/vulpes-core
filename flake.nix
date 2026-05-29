@@ -4,8 +4,11 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     vulpes-core-plugins = {
-      url = "path:../vulpes-core-plugins";
-      flake = false;
+      # Pinned in flake.lock to a specific commit. For local co-development
+      # against an unpushed checkout, override with:
+      #   nix build --override-input vulpes-core-plugins git+file:///path/to/vulpes-core-plugins
+      url = "github:FenkoHQ/vulpes-core-plugins";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
@@ -14,43 +17,16 @@
     systems = [ "x86_64-linux" "aarch64-linux" ];
     forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
   in {
+    # Re-export the plugin packages and plugin-bundle from the plugins flake,
+    # and add the gateway itself.
     packages = forAllSystems (pkgs:
-      let
-        buildPlugin = name: hash: pkgs.buildGoModule {
-          pname = name;
-          version = "0.1.0";
-          src = vulpes-core-plugins;
-          modRoot = "plugins/${name}";
-          vendorHash = hash;
-          subPackages = [ "." ];
-        };
-        plugins = rec {
-          authn-static-api-key = buildPlugin "authn-static-api-key" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-          authn-postgres-api-key = buildPlugin "authn-postgres-api-key" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-          cache-memory = buildPlugin "cache-memory" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-          ratelimit-memory = buildPlugin "ratelimit-memory" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-          router-weighted = buildPlugin "router-weighted" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-          router-litellm = buildPlugin "router-litellm" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-          router-consul = buildPlugin "router-consul" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-          prompt-context-injector = buildPlugin "prompt-context-injector" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-          prompt-template-registry = buildPlugin "prompt-template-registry" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-          upstream-openai = buildPlugin "upstream-openai" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-          observer-stdout = buildPlugin "observer-stdout" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-          observer-prometheus = buildPlugin "observer-prometheus" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-          observer-otel = buildPlugin "observer-otel" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-          observer-s3-transcripts = buildPlugin "observer-s3-transcripts" "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-        };
-      in plugins // {
+      vulpes-core-plugins.packages.${pkgs.system} // {
         vulpes-core = pkgs.buildGoModule {
           pname = "vulpes-core";
           version = "0.1.0";
           src = self;
           vendorHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
           subPackages = [ "cmd/gateway" "cmd/pluginctl" ];
-        };
-        plugin-bundle = pkgs.symlinkJoin {
-          name = "vulpes-core-plugin-bundle";
-          paths = builtins.attrValues plugins;
         };
         default = self.packages.${pkgs.system}.vulpes-core;
       });
