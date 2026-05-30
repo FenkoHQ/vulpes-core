@@ -27,6 +27,11 @@
           src = self;
           vendorHash = "sha256-MyBPNy9kKp6Q8l2lyH30o3zOXQwv1fSJPshowI45j/s=";
           subPackages = [ "cmd/gateway" "cmd/pluginctl" ];
+          # Static, stripped binaries suitable for deployment.
+          env.CGO_ENABLED = "0";
+          ldflags = [ "-s" "-w" ];
+          doCheck = false;
+          meta.mainProgram = "gateway";
         };
         default = self.packages.${pkgs.system}.vulpes-core;
       });
