@@ -25,7 +25,7 @@
           pname = "vulpes-core";
           version = "0.1.0";
           src = self;
-          vendorHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+          vendorHash = "sha256-MyBPNy9kKp6Q8l2lyH30o3zOXQwv1fSJPshowI45j/s=";
           subPackages = [ "cmd/gateway" "cmd/pluginctl" ];
         };
         default = self.packages.${pkgs.system}.vulpes-core;
